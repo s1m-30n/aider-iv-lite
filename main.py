@@ -10,7 +10,13 @@ SYMBOLS = [
     "Boom 900 Index", "Crash 900 Index",
     "Boom 1000 Index", "Crash 1000 Index"
 ]
-TIMEFRAME = mt5.TIMEFRAME_M5 # Using M5 for now
+TIMEFRAMES = {
+    'D1': mt5.TIMEFRAME_D1,
+    'H4': mt5.TIMEFRAME_H4,
+    'H1': mt5.TIMEFRAME_H1,
+    'M15': mt5.TIMEFRAME_M15,
+    'M5': mt5.TIMEFRAME_M5
+}
 VOLUME = 0.2 # Minimum lot size, adjust as needed
 
 def main():
@@ -28,13 +34,26 @@ def main():
             print(f"Scanning markets at {time.strftime('%Y-%m-%d %H:%M:%S')}...")
             
             for symbol in SYMBOLS:
-                # Get data
-                df = client.get_data(symbol, TIMEFRAME, 100)
-                if df.empty:
+                print(f"Scanning {symbol}...")
+                
+                # Get data for all timeframes
+                data = {}
+                missing_data = False
+                for tf_name, tf_code in TIMEFRAMES.items():
+                    # Fetch more candles for higher timeframes to ensure enough data for indicators (e.g. 200 EMA)
+                    num_candles = 300 if tf_name == 'D1' else 100
+                    df = client.get_data(symbol, tf_code, num_candles)
+                    if df.empty:
+                        print(f"Failed to get {tf_name} data for {symbol}")
+                        missing_data = True
+                        break
+                    data[tf_name] = df
+                
+                if missing_data:
                     continue
                 
                 # Analyze
-                signal = strategy.analyze_symbol(symbol, df)
+                signal = strategy.analyze_symbol(symbol, data)
                 
                 if signal:
                     print(f"Signal found for {symbol}: {signal['signal']} ({signal['type']})")
