@@ -19,23 +19,27 @@ TIMEFRAMES = {
 }
 VOLUME = 0.2 # Minimum lot size, adjust as needed
 
+from ui import BotUI
+
 def main():
-    print("Starting Aider Lite Bot...")
+    ui = BotUI()
+    ui.print_banner()
+    ui.log("Starting Aider Lite Bot...", "info")
     
     client = MT5Client()
     if not client.initialize():
-        print("Failed to initialize MT5 Client")
+        ui.log("Failed to initialize MT5 Client", "error")
         return
 
     strategy = Strategy()
     
     try:
         while True:
-            print(f"Scanning markets at {time.strftime('%Y-%m-%d %H:%M:%S')}...")
+            # ui.log(f"Scanning markets...", "info")
+            
+            market_status = {}
             
             for symbol in SYMBOLS:
-                print(f"Scanning {symbol}...")
-                
                 # Get data for all timeframes
                 data = {}
                 missing_data = False
@@ -44,7 +48,7 @@ def main():
                     num_candles = 300 if tf_name == 'D1' else 100
                     df = client.get_data(symbol, tf_code, num_candles)
                     if df.empty:
-                        print(f"Failed to get {tf_name} data for {symbol}")
+                        ui.log(f"Failed to get {tf_name} data for {symbol}", "warning")
                         missing_data = True
                         break
                     data[tf_name] = df
@@ -53,16 +57,24 @@ def main():
                     continue
                 
                 # Analyze
-                signal = strategy.analyze_symbol(symbol, data)
+                # Now returns (signal, details)
+                signal, details = strategy.analyze_symbol(symbol, data)
+                
+                # Update Market Status for UI
+                market_status[symbol] = details
+                market_status[symbol]['signal'] = signal['signal'] if signal else 'None'
                 
                 if signal:
-                    print(f"Signal found for {symbol}: {signal['signal']} ({signal['type']})")
+                    ui.log(f"Signal found for {symbol}: {signal['signal']} ({signal['type']})", "success")
                     
                     # Check if we already have a position for this symbol
                     positions = client.get_open_positions(symbol=symbol)
                     if len(positions) == 0:
                         # Place order
                         order_type = mt5.ORDER_TYPE_BUY if signal['signal'] == 'buy' else mt5.ORDER_TYPE_SELL
+                        
+                        # Alert User
+                        ui.trade_alert(symbol, signal['signal'], signal['price'], signal['sl'], signal['tp'])
                         
                         result = client.place_order(
                             symbol=symbol,
@@ -74,25 +86,29 @@ def main():
                         )
                         
                         if result:
-                            print(f"Order placed for {symbol}: {result}")
+                            ui.log(f"Order placed for {symbol}: {result}", "success")
                     else:
-                        print(f"Position already exists for {symbol}, skipping.")
+                        ui.log(f"Position already exists for {symbol}, skipping.", "warning")
             
-            # Manage trailing stops
-            manage_trailing_stops(client)
+            # Print Status Table
+            ui.print_status(market_status)
+            
+            # Manage active trades (Smart Exit)
+            manage_active_trades(client, strategy, ui)
             
             # Sleep for a bit (e.g., 1 minute)
             time.sleep(60)
             
     except KeyboardInterrupt:
-        print("Bot stopped by user.")
+        ui.log("Bot stopped by user.", "warning")
     finally:
         client.shutdown()
 
-def manage_trailing_stops(client: MT5Client):
+def manage_active_trades(client: MT5Client, strategy: Strategy, ui: BotUI):
     """
-    Simple trailing stop logic.
-    If price moves in favor by X points, move SL to break even or trail.
+    Manage open positions:
+    1. Smart Exit: Close if Profit > $0.50 AND Spike Risk is High (>70%).
+    2. Trailing Stop: (Optional/Future)
     """
     positions = client.get_open_positions()
     if positions is None:
@@ -101,26 +117,32 @@ def manage_trailing_stops(client: MT5Client):
     for pos in positions:
         symbol = pos.symbol
         ticket = pos.ticket
-        order_type = pos.type
-        open_price = pos.price_open
-        current_sl = pos.sl
-        current_tp = pos.tp
+        profit = pos.profit # Profit in account currency (e.g., USD)
         
-        tick = client.get_symbol_tick(symbol)
-        if tick is None:
+        # 1. Get M5 data for Spike Prediction
+        df_m5 = client.get_data(symbol, mt5.TIMEFRAME_M5, 100)
+        if df_m5 is None or df_m5.empty:
             continue
             
-        current_price = tick.bid if order_type == mt5.ORDER_TYPE_BUY else tick.ask
+        # 2. Predict Spike
+        spike_pred = strategy.predict_spike(symbol, df_m5)
+        spike_prob = spike_pred['probability'] if spike_pred else 0.0
         
-        # Calculate points in profit
-        if order_type == mt5.ORDER_TYPE_BUY:
-            profit_points = current_price - open_price
-        else:
-            profit_points = open_price - current_price
+        # 3. Smart Exit Rule
+        # User: "profit maybe above 0.5 dollar, and possible reversal... close trade"
+        if profit > 0.5 and spike_prob > 70:
+            ui.log(f"🚨 Smart Exit Triggered for {symbol} (Ticket {ticket})", "warning")
+            ui.log(f"   Reason: Profit (${profit:.2f}) > $0.50 AND High Spike Risk ({spike_prob}%)", "warning")
             
-        # Example Trailing Logic (Placeholder)
-        # print(f"Position {ticket} {symbol}: Profit {profit_points}")
-        pass
+            # Close Position
+            if client.close_position(ticket):
+                ui.log(f"   ✅ Trade Closed Successfully.", "success")
+            else:
+                ui.log(f"   ❌ Failed to Close Trade.", "error")
+        
+        # Logging for monitoring
+        elif profit > 0.5:
+             ui.log(f"👀 Monitoring {symbol}: Profit ${profit:.2f}, Spike Risk {spike_prob}% (Safe)", "info")
 
 if __name__ == "__main__":
     main()

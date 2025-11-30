@@ -93,6 +93,15 @@ class MT5Client:
 
         price = tick.ask if order_type == mt5.ORDER_TYPE_BUY else tick.bid
         
+        # Normalize SL/TP
+        symbol_info = mt5.symbol_info(symbol)
+        if symbol_info:
+            digits = symbol_info.digits
+            if sl > 0:
+                sl = round(sl, digits)
+            if tp > 0:
+                tp = round(tp, digits)
+        
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
             "symbol": symbol,
@@ -105,7 +114,8 @@ class MT5Client:
             "magic": 234000,
             "comment": comment,
             "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_IOC,
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_FOK,
         }
 
         result = mt5.order_send(request)

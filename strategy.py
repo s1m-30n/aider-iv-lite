@@ -24,7 +24,7 @@ class Strategy:
         Returns:
             dict: Signal dictionary or None.
         """
-        print(f"Analyzing {symbol}...")
+        # print(f"Analyzing {symbol}...")
         
         # Boom = Sell Only, Crash = Buy Only
         is_boom = "Boom" in symbol
@@ -35,13 +35,11 @@ class Strategy:
         h4_trend = self.analyze_trend(data.get('H4'))
         h1_trend = self.analyze_trend(data.get('H1'))
         
-        print(f"  Trends: D1={d1_trend}, H4={h4_trend}, H1={h1_trend}")
+        # print(f"  Trends: D1={d1_trend}, H4={h4_trend}, H1={h1_trend}")
         
         bias = "neutral"
         if is_boom:
             # We want Sell.
-            # 1. D1 is Bearish (Trend aligned) -> Good.
-            # 2. D1 is Bullish BUT H4 and H1 are Bearish (Reversal/Pullback) -> Acceptable.
             if d1_trend == "bearish":
                 if h4_trend == "bearish" or h1_trend == "bearish":
                      bias = "sell"
@@ -51,8 +49,6 @@ class Strategy:
                 
         elif is_crash:
             # We want Buy.
-            # 1. D1 is Bullish (Trend aligned) -> Good.
-            # 2. D1 is Bearish BUT H4 and H1 are Bullish (Reversal/Pullback) -> Acceptable.
             if d1_trend == "bullish":
                 if h4_trend == "bullish" or h1_trend == "bullish":
                     bias = "buy"
@@ -60,26 +56,34 @@ class Strategy:
                 if h4_trend == "bullish" and h1_trend == "bullish":
                     bias = "buy"
         
-        print(f"  Market Bias: {bias}")
+        # print(f"  Market Bias: {bias}")
+        
+        # Spike Prediction (Informational)
+        spike_pred = self.predict_spike(symbol, data.get('M5'))
+        spike_prob = spike_pred['probability'] if spike_pred else 0.0
+        
+        # Prepare details for UI
+        details = {
+            "trend": f"{d1_trend[0].upper()}/{h4_trend[0].upper()}/{h1_trend[0].upper()}",
+            "bias": bias.upper(),
+            "spike_prob": spike_prob,
+            "price": data.get('M5')['close'].iloc[-1] if data.get('M5') is not None and not data.get('M5').empty else 0.0
+        }
         
         if bias == "neutral":
-            return None
+            return None, details
             
         # 2. If Bias is favorable, check for Entry on Lower Timeframes (M15, M5)
-        # We can also check H1 for a Swing Entry if H1 is aligned.
-        
         best_signal = None
         
         # Check M15/M5 for Scalp Entry
-        # We pass the bias as the 'trend' argument to enforce direction
-        scalp_signal = self.analyze_scalp(symbol, data.get('M15'), data.get('M5'), bias)
-        print(scalp_signal)
+        scalp_signal = self.analyze_scalp(symbol, data.get('M15'), data.get('M5'), bias, spike_prob)
         
         if scalp_signal:
             best_signal = scalp_signal
-            print(f"  Found Scalp Setup: {scalp_signal['signal']}")
+            # print(f"  Found Scalp Setup: {scalp_signal['signal']}")
             
-        return best_signal
+        return best_signal, details
 
     def analyze_trend(self, df: pd.DataFrame) -> str:
         """Determine trend from data using EMA 50."""
@@ -104,7 +108,7 @@ class Strategy:
 
 
 
-    def analyze_scalp(self, symbol: str, df_m15: pd.DataFrame, df_m5: pd.DataFrame, trend: str) -> dict:
+    def analyze_scalp(self, symbol: str, df_m15: pd.DataFrame, df_m5: pd.DataFrame, trend: str, spike_prob: float = 0.0) -> dict:
         """Analyze for Scalp setups (M15/M5)."""
         if df_m15 is None or df_m15.empty or df_m5 is None or df_m5.empty:
             return None
@@ -112,12 +116,9 @@ class Strategy:
         is_boom = "Boom" in symbol
         is_crash = "Crash" in symbol
         
-        # Scalps can be counter-trend, but safer with trend.
-        # Let's be strict: Boom (Sell), Crash (Buy).
-        
         # M5 Entry
         close_prices = df_m5['close'].values
-        upper_bb, _, lower_bb = calculate_bollinger_bands(close_prices)
+        upper_bb, middle_bb, lower_bb = calculate_bollinger_bands(close_prices)
         rsi = calculate_rsi(close_prices)
         atr = calculate_atr(df_m5['high'].values, df_m5['low'].values, close_prices)
         
@@ -127,33 +128,57 @@ class Strategy:
         current_price = close_prices[-1]
         current_rsi = rsi[-1]
         current_upper_bb = upper_bb[-1]
+        current_middle_bb = middle_bb[-1]
         current_lower_bb = lower_bb[-1]
         current_atr = atr[-1]
+        
+        # Safety Check: If spike is imminent (>60%), DO NOT TRADE
+        if spike_prob > 60:
+            # print(f"    ⚠️ High Spike Risk ({spike_prob}%), skipping scalp.")
+            return None
+            
+        # Thresholds
+        # If safe (low-ish spike risk), relax conditions significantly
+        if spike_prob < 45:
+            # Super Relaxed
+            boom_rsi_thresh = 50
+            crash_rsi_thresh = 50
+            # Allow trading almost anywhere not extreme
+            boom_price_cond = current_price > current_lower_bb # Just not hugging lower band
+            crash_price_cond = current_price < current_upper_bb # Just not hugging upper band
+        else:
+            # Standard/Strict (when spike risk is moderate 45-60%)
+            boom_rsi_thresh = 65
+            crash_rsi_thresh = 35
+            boom_price_cond = current_price > current_upper_bb
+            crash_price_cond = current_price < current_lower_bb
         
         signal = None
         
         if is_boom: # Sell
-            # Price at Upper BB, RSI high
-            print(f"    Scalp Check {symbol}: Price={current_price:.2f}, UpperBB={current_upper_bb:.2f}, RSI={current_rsi:.2f}")
-            if current_price > current_upper_bb and current_rsi > 65:
+            # print(f"    Scalp Check {symbol}: Price={current_price:.2f}, RSI={current_rsi:.2f} (Thresh: >{boom_rsi_thresh})")
+            if boom_price_cond and current_rsi > boom_rsi_thresh:
                 signal = "sell"
         elif is_crash: # Buy
-            # Price at Lower BB, RSI low
-            print(f"    Scalp Check {symbol}: Price={current_price:.2f}, LowerBB={current_lower_bb:.2f}, RSI={current_rsi:.2f}")
-            if current_price < current_lower_bb and current_rsi < 35:
+            # print(f"    Scalp Check {symbol}: Price={current_price:.2f}, RSI={current_rsi:.2f} (Thresh: <{crash_rsi_thresh})")
+            if crash_price_cond and current_rsi < crash_rsi_thresh:
                 signal = "buy"
                 
         if signal:
-            # Scalp targets are tighter
-            sl_pips = current_atr * 1.5
-            tp_pips = current_atr * 2.5 # Quick profit
+            # Scalp targets
+            sl_dist = current_atr * 1.5
+            tp_dist = current_atr * 3.0
+            
+            # Enforce minimums
+            sl_dist = max(sl_dist, 10.0)
+            tp_dist = max(tp_dist, 20.0)
             
             if signal == "buy":
-                sl = current_price - sl_pips
-                tp = current_price + tp_pips
+                sl = current_price - sl_dist
+                tp = current_price + tp_dist
             else:
-                sl = current_price + sl_pips
-                tp = current_price - tp_pips
+                sl = current_price + sl_dist
+                tp = current_price - tp_dist
                 
             return {
                 "signal": signal,
@@ -164,3 +189,106 @@ class Strategy:
             }
             
         return None
+
+    def predict_spike(self, symbol: str, df_m5: pd.DataFrame) -> dict:
+        """
+        Predict the likelihood of a spike based on statistics and technicals.
+        
+        Args:
+            symbol (str): The symbol.
+            df_m5 (pd.DataFrame): M5 Data.
+            
+        Returns:
+            dict: Prediction details or None.
+        """
+        if df_m5 is None or df_m5.empty:
+            return None
+            
+        is_boom = "Boom" in symbol
+        is_crash = "Crash" in symbol
+        
+        # 1. Identify Past Spikes (Statistical)
+        # Calculate body sizes
+        opens = df_m5['open'].values
+        closes = df_m5['close'].values
+        
+        bodies = np.abs(closes - opens)
+        avg_body = np.mean(bodies)
+        
+        # Threshold for a "spike" (e.g., 3x average body)
+        spike_threshold = avg_body * 3.0
+        
+        spikes_indices = []
+        for i in range(len(closes)):
+            body = bodies[i]
+            is_bullish = closes[i] > opens[i]
+            is_bearish = closes[i] < opens[i]
+            
+            if is_boom and is_bullish and body > spike_threshold:
+                spikes_indices.append(i)
+            elif is_crash and is_bearish and body > spike_threshold:
+                spikes_indices.append(i)
+                
+        # Calculate average distance between spikes
+        if len(spikes_indices) < 2:
+            avg_distance = 0
+            candles_since_last = 0
+        else:
+            distances = np.diff(spikes_indices)
+            avg_distance = np.mean(distances)
+            last_spike_idx = spikes_indices[-1]
+            candles_since_last = len(closes) - 1 - last_spike_idx
+            
+        # 2. Technical Conditions
+        rsi = calculate_rsi(closes)
+        upper_bb, _, lower_bb = calculate_bollinger_bands(closes)
+        slowk, slowd = calculate_stochastic(df_m5['high'].values, df_m5['low'].values, closes)
+        
+        if len(rsi) == 0 or len(slowk) == 0:
+            return None
+            
+        current_rsi = rsi[-1]
+        current_stoch_k = slowk[-1]
+        current_price = closes[-1]
+        
+        probability = 0.0
+        reasons = []
+        
+        # Statistical Factor
+        if avg_distance > 0:
+            ratio = candles_since_last / avg_distance
+            if ratio > 0.8: # Approaching average time
+                probability += 30
+                reasons.append(f"Due for spike (Time: {candles_since_last}/{avg_distance:.1f})")
+            if ratio > 1.5: # Overdue
+                probability += 20
+                reasons.append("Overdue")
+                
+        # Technical Factor
+        if is_boom:
+            if current_rsi < 30: # Oversold
+                probability += 20
+                reasons.append(f"RSI Oversold ({current_rsi:.1f})")
+            if current_stoch_k < 20: # Stochastic Oversold
+                probability += 20
+                reasons.append(f"Stoch Oversold ({current_stoch_k:.1f})")
+            if current_price < lower_bb[-1]: # Near Lower BB
+                probability += 10
+                reasons.append("Price below Lower BB")
+        elif is_crash:
+            if current_rsi > 70: # Overbought
+                probability += 20
+                reasons.append(f"RSI Overbought ({current_rsi:.1f})")
+            if current_stoch_k > 80: # Stochastic Overbought
+                probability += 20
+                reasons.append(f"Stoch Overbought ({current_stoch_k:.1f})")
+            if current_price > upper_bb[-1]: # Near Upper BB
+                probability += 10
+                reasons.append("Price above Upper BB")
+                
+        return {
+            "probability": min(probability, 100),
+            "reasons": reasons,
+            "avg_distance": avg_distance,
+            "candles_since_last": candles_since_last
+        }
