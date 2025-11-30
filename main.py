@@ -150,7 +150,9 @@ def manage_active_trades(client: MT5Client, strategy: Strategy, ui: BotUI):
         is_sell = pos.type == mt5.ORDER_TYPE_SELL
         
         should_close = False
+        reason = ""
         
+        # A. Spike Risk Exit
         if spike_prob >= 70:
             if is_boom and is_sell:
                 should_close = True
@@ -158,6 +160,14 @@ def manage_active_trades(client: MT5Client, strategy: Strategy, ui: BotUI):
             elif is_crash and is_buy:
                 should_close = True
                 reason = f"High Spike Risk ({spike_prob}%) on Crash (Buy Position)"
+        
+        # B. Profit Exit Strategies (N-Candle, RSI, BB)
+        # Only check if we aren't already closing for spike risk
+        if not should_close:
+            should_close_profit, profit_reason = strategy.check_exit_conditions(symbol, df_m5, pos.type, pos.time)
+            if should_close_profit:
+                should_close = True
+                reason = f"Profit Exit: {profit_reason}"
                 
         if should_close:
             ui.log(f"🚨 Smart Exit Triggered for {symbol} (Ticket {ticket})", "warning")
