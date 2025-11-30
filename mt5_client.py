@@ -116,6 +116,12 @@ class MT5Client:
             elif (symbol_info.filling_mode & SYMBOL_FILLING_IOC) != 0:
                 filling_mode = mt5.ORDER_FILLING_IOC
         
+        # Ensure types are standard Python floats (not numpy types)
+        volume = float(volume)
+        sl = float(sl)
+        tp = float(tp)
+        price = float(price)
+
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
             "symbol": symbol,
@@ -134,6 +140,8 @@ class MT5Client:
         result = mt5.order_send(request)
         if result is None:
             print("Order send failed: result is None")
+            print(f"Request: {request}")
+            print(f"Last Error: {mt5.last_error()}")
             return None
             
         # Handle if result is a dict (unexpected but possible)

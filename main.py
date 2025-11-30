@@ -65,6 +65,17 @@ def main():
                 market_status[symbol]['signal'] = signal['signal'] if signal else 'None'
                 
                 if signal:
+                    # Spike Wait Logic
+                    # If Spike Risk >= 15%, wait for spike to occur (must be recent, e.g., < 3 candles ago)
+                    spike_prob = details.get('spike_prob', 0.0)
+                    candles_since_spike = details.get('candles_since_spike')
+                    
+                    if spike_prob >= 15:
+                        # If no spike recorded OR last spike was too long ago (> 3 candles / 15 mins)
+                        if candles_since_spike is None or candles_since_spike > 3:
+                            ui.log(f"⚠️ High Spike Risk ({spike_prob}%) and no recent spike. Waiting...", "warning")
+                            continue
+
                     ui.log(f"Signal found for {symbol}: {signal['signal']} ({signal['type']})", "success")
                     
                     # Check if we already have a position for this symbol

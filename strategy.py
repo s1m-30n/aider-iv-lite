@@ -69,6 +69,7 @@ class Strategy:
             "trend_h1": h1_trend,
             "bias": bias.upper(),
             "spike_prob": spike_prob,
+            "candles_since_spike": spike_pred.get('candles_since_spike') if spike_pred else None,
             "price": data.get('M5')['close'].iloc[-1] if data.get('M5') is not None and not data.get('M5').empty else 0.0
         }
         
@@ -248,12 +249,15 @@ class Strategy:
                 
         time_prob = 0.0
         reasons = []
+        candles_since_last = None
         
+        if len(spikes_indices) > 0:
+            last_spike_idx = spikes_indices[-1]
+            candles_since_last = len(closes) - 1 - last_spike_idx
+
         if len(spikes_indices) >= 2:
             distances = np.diff(spikes_indices)
             avg_distance = np.mean(distances)
-            last_spike_idx = spikes_indices[-1]
-            candles_since_last = len(closes) - 1 - last_spike_idx
             
             if avg_distance > 0:
                 ratio = candles_since_last / avg_distance
@@ -325,5 +329,6 @@ class Strategy:
             
         return {
             "probability": min(final_prob, 100),
-            "reasons": reasons
+            "reasons": reasons,
+            "candles_since_spike": candles_since_last if len(spikes_indices) > 0 else None
         }
