@@ -64,7 +64,9 @@ class Strategy:
         
         # Prepare details for UI
         details = {
-            "trend": f"{d1_trend[0].upper()}/{h4_trend[0].upper()}/{h1_trend[0].upper()}",
+            "trend_d1": d1_trend,
+            "trend_h4": h4_trend,
+            "trend_h1": h1_trend,
             "bias": bias.upper(),
             "spike_prob": spike_prob,
             "price": data.get('M5')['close'].iloc[-1] if data.get('M5') is not None and not data.get('M5').empty else 0.0

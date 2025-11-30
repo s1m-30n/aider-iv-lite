@@ -18,16 +18,23 @@ class BotUI:
             box=box.ROUNDED
         ))
         
+    def _format_trend_arrow(self, trend: str) -> str:
+        if trend == "bullish":
+            return "[green]↑[/green]"
+        elif trend == "bearish":
+            return "[red]↓[/red]"
+        return "[dim]-[/dim]"
+
     def print_status(self, market_data: dict):
         """
         Print a table of current market status.
-        market_data: dict of symbol -> {price, trend, bias, signal, spike_prob}
+        market_data: dict of symbol -> {price, trend_d1, trend_h4, trend_h1, bias, signal, spike_prob}
         """
         table = Table(title=f"Market Status - {datetime.now().strftime('%H:%M:%S')}", box=box.ROUNDED)
         
         table.add_column("Symbol", style="cyan", no_wrap=True)
         table.add_column("Price", style="white")
-        table.add_column("Trend (D1/H4/H1)", style="magenta")
+        table.add_column("Trend (D1/H4/H1)", style="white")
         table.add_column("Bias", style="yellow")
         table.add_column("Spike Risk", style="red")
         table.add_column("Signal", style="green")
@@ -45,11 +52,17 @@ class BotUI:
                 signal = f"[bold green]{signal}[/bold green]"
             else:
                 signal = "[dim]None[/dim]"
+            
+            # Format Trend
+            t_d1 = self._format_trend_arrow(data.get('trend_d1', 'neutral'))
+            t_h4 = self._format_trend_arrow(data.get('trend_h4', 'neutral'))
+            t_h1 = self._format_trend_arrow(data.get('trend_h1', 'neutral'))
+            trend_str = f"{t_d1} {t_h4} {t_h1}"
                 
             table.add_row(
                 symbol,
                 f"{data.get('price', 0):.2f}",
-                data.get('trend', 'N/A'),
+                trend_str,
                 data.get('bias', 'N/A'),
                 spike_str,
                 signal
