@@ -33,8 +33,8 @@ def main():
         return
 
     # Initialize and start Telegram Bot
-    bot = TelegramBot()
-    bot.start()
+    # bot = TelegramBot()
+    # bot.start()
     ui.log("Telegram Bot started", "info")
 
     strategy = Strategy()
@@ -98,7 +98,7 @@ SL: <code>{signal['sl']}</code>
 TP: <code>{signal['tp']}</code>
 Reason: <i>{signal['type']}</i>"""
                     
-                    bot.send_signal(msg)
+                    # bot.send_signal(msg)
                     
                     # Check if we already have a position for this symbol
                     positions = client.get_open_positions(symbol=symbol)
@@ -129,13 +129,13 @@ Reason: <i>{signal['type']}</i>"""
             # Periodic Telegram Update
             current_time = time.time()
             if current_time - last_update_time >= UPDATE_INTERVAL:
-                status_msg = bot.format_status_message(market_status)
-                bot.send_signal(status_msg)
+                # status_msg = bot.format_status_message(market_status)
+                # bot.send_signal(status_msg)
                 last_update_time = current_time
                 ui.log("Sent periodic market update to Telegram", "info")
             
             # Manage active trades (Smart Exit)
-            manage_active_trades(client, strategy, ui, bot)
+            manage_active_trades(client, strategy, ui)
             
             # Sleep for a bit (e.g., 30 seconds)
             time.sleep(30)
@@ -144,9 +144,9 @@ Reason: <i>{signal['type']}</i>"""
         ui.log("Bot stopped by user.", "warning")
     finally:
         client.shutdown()
-        bot.stop()
+        # bot.stop()
 
-def manage_active_trades(client: MT5Client, strategy: Strategy, ui: BotUI, bot: TelegramBot):
+def manage_active_trades(client: MT5Client, strategy: Strategy, ui: BotUI, bot: None | TelegramBot = None):
     """
     Manage open positions:
     1. Smart Exit: Close if Profit > $0.50 AND Spike Risk is High (>70%).
@@ -210,7 +210,7 @@ def manage_active_trades(client: MT5Client, strategy: Strategy, ui: BotUI, bot: 
         if should_close:
             ui.log(f"🚨 Smart Exit Triggered for {symbol} (Ticket {ticket})", "warning")
             ui.log(f"   Reason: {reason}", "warning")
-            bot.send_signal(f"🚨 <b>Smart Exit Triggered: {symbol}</b>\nReason: <i>{reason}</i>")
+            # bot.send_signal(f"🚨 <b>Smart Exit Triggered: {symbol}</b>\nReason: <i>{reason}</i>")
             
             # Close Position
             if client.close_position(ticket):
