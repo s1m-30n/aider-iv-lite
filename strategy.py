@@ -59,7 +59,7 @@ class Strategy:
         # print(f"  Market Bias: {bias}")
         
         # Spike Prediction (Informational)
-        spike_pred = self.predict_spike(symbol, data.get('M5'))
+        spike_pred = self.predict_spike(symbol, data.get('M5'), data.get('M1'))
         spike_prob = spike_pred['probability'] if spike_pred else 0.0
         
         # Prepare details for UI
@@ -69,6 +69,7 @@ class Strategy:
             "trend_h1": h1_trend,
             "bias": bias.upper(),
             "spike_prob": spike_prob,
+            "candles_since_spike": spike_pred.get('candles_since_spike') if spike_pred else None,
             "price": data.get('M5')['close'].iloc[-1] if data.get('M5') is not None and not data.get('M5').empty else 0.0
         }
         
@@ -192,16 +193,35 @@ class Strategy:
             
         return None
 
-    def predict_spike(self, symbol: str, df_m5: pd.DataFrame) -> dict:
+    def calculate_support_resistance(self, df: pd.DataFrame, lookback: int = 20) -> dict:
         """
-        Predict the likelihood of a spike based on statistics and technicals.
-        
-        Args:
-            symbol (str): The symbol.
-            df_m5 (pd.DataFrame): M5 Data.
+        Identify short-term Support and Resistance levels.
+        """
+        if df is None or df.empty:
+            return {'support': [], 'resistance': []}
             
-        Returns:
-            dict: Prediction details or None.
+        highs = df['high'].values
+        lows = df['low'].values
+        
+        supports = []
+        resistances = []
+        
+        # Simple local extrema
+        for i in range(2, len(df) - 2):
+            # Support: Low is lower than 2 previous and 2 next
+            if lows[i] < lows[i-1] and lows[i] < lows[i-2] and lows[i] < lows[i+1] and lows[i] < lows[i+2]:
+                supports.append(lows[i])
+                
+            # Resistance: High is higher than 2 previous and 2 next
+            if highs[i] > highs[i-1] and highs[i] > highs[i-2] and highs[i] > highs[i+1] and highs[i] > highs[i+2]:
+                resistances.append(highs[i])
+                
+        return {'support': supports[-3:], 'resistance': resistances[-3:]} # Return last 3
+
+    def predict_spike(self, symbol: str, df_m5: pd.DataFrame, df_m1: pd.DataFrame = None) -> dict:
+        """
+        Predict the likelihood of a spike with high precision.
+        Uses M5 for stats and M1 for immediate S/R and Technicals.
         """
         if df_m5 is None or df_m5.empty:
             return None
@@ -209,15 +229,12 @@ class Strategy:
         is_boom = "Boom" in symbol
         is_crash = "Crash" in symbol
         
-        # 1. Identify Past Spikes (Statistical)
-        # Calculate body sizes
+        # --- 1. Statistical (Time) Factor (Weight: 10%) ---
+        # Use M5 for broader context of spike frequency
         opens = df_m5['open'].values
         closes = df_m5['close'].values
-        
         bodies = np.abs(closes - opens)
         avg_body = np.mean(bodies)
-        
-        # Threshold for a "spike" (e.g., 3x average body)
         spike_threshold = avg_body * 3.0
         
         spikes_indices = []
@@ -225,72 +242,93 @@ class Strategy:
             body = bodies[i]
             is_bullish = closes[i] > opens[i]
             is_bearish = closes[i] < opens[i]
-            
             if is_boom and is_bullish and body > spike_threshold:
                 spikes_indices.append(i)
             elif is_crash and is_bearish and body > spike_threshold:
                 spikes_indices.append(i)
                 
-        # Calculate average distance between spikes
-        if len(spikes_indices) < 2:
-            avg_distance = 0
-            candles_since_last = 0
-        else:
-            distances = np.diff(spikes_indices)
-            avg_distance = np.mean(distances)
+        time_prob = 0.0
+        reasons = []
+        candles_since_last = None
+        
+        if len(spikes_indices) > 0:
             last_spike_idx = spikes_indices[-1]
             candles_since_last = len(closes) - 1 - last_spike_idx
+
+        if len(spikes_indices) >= 2:
+            distances = np.diff(spikes_indices)
+            avg_distance = np.mean(distances)
             
-        # 2. Technical Conditions
-        rsi = calculate_rsi(closes)
-        upper_bb, _, lower_bb = calculate_bollinger_bands(closes)
-        slowk, slowd = calculate_stochastic(df_m5['high'].values, df_m5['low'].values, closes)
+            if avg_distance > 0:
+                ratio = candles_since_last / avg_distance
+                if ratio > 0.8: time_prob = 100
+        
+        # --- 2. Technical Factor (Weight: 30%) ---
+        # Use M1 for precision if available, else M5
+        df_tech = df_m1 if df_m1 is not None and not df_m1.empty else df_m5
+        closes_tech = df_tech['close'].values
+        
+        rsi = calculate_rsi(closes_tech)
+        slowk, slowd = calculate_stochastic(df_tech['high'].values, df_tech['low'].values, closes_tech)
+        upper_bb, _, lower_bb = calculate_bollinger_bands(closes_tech)
         
         if len(rsi) == 0 or len(slowk) == 0:
             return None
             
         current_rsi = rsi[-1]
         current_stoch_k = slowk[-1]
-        current_price = closes[-1]
+        current_price = closes_tech[-1]
         
-        probability = 0.0
-        reasons = []
+        tech_prob = 0.0
         
-        # Statistical Factor
-        if avg_distance > 0:
-            ratio = candles_since_last / avg_distance
-            if ratio > 0.8: # Approaching average time
-                probability += 30
-                reasons.append(f"Due for spike (Time: {candles_since_last}/{avg_distance:.1f})")
-            if ratio > 1.5: # Overdue
-                probability += 20
-                reasons.append("Overdue")
-                
-        # Technical Factor
         if is_boom:
-            if current_rsi < 30: # Oversold
-                probability += 20
-                reasons.append(f"RSI Oversold ({current_rsi:.1f})")
-            if current_stoch_k < 20: # Stochastic Oversold
-                probability += 20
-                reasons.append(f"Stoch Oversold ({current_stoch_k:.1f})")
-            if current_price < lower_bb[-1]: # Near Lower BB
-                probability += 10
-                reasons.append("Price below Lower BB")
+            if current_rsi < 30: tech_prob += 50
+            if current_stoch_k < 20: tech_prob += 50
         elif is_crash:
-            if current_rsi > 70: # Overbought
-                probability += 20
-                reasons.append(f"RSI Overbought ({current_rsi:.1f})")
-            if current_stoch_k > 80: # Stochastic Overbought
-                probability += 20
-                reasons.append(f"Stoch Overbought ({current_stoch_k:.1f})")
-            if current_price > upper_bb[-1]: # Near Upper BB
-                probability += 10
-                reasons.append("Price above Upper BB")
+            if current_rsi > 70: tech_prob += 50
+            if current_stoch_k > 80: tech_prob += 50
+            
+        # --- 3. Support/Resistance Factor (Weight: 60%) ---
+        # Critical for "Super Precision"
+        sr_levels = self.calculate_support_resistance(df_tech)
+        sr_prob = 0.0
+        
+        # Check proximity to levels (within 0.05% of price)
+        threshold = current_price * 0.0005 
+        
+        if is_boom:
+            # Look for Support
+            for level in sr_levels['support']:
+                if abs(current_price - level) < threshold:
+                    sr_prob = 100
+                    reasons.append(f"At Support ({level:.2f})")
+                    break
+            # Also check Lower BB as dynamic support
+            if current_price <= lower_bb[-1]:
+                sr_prob = max(sr_prob, 80)
+                reasons.append("At Lower BB")
                 
+        elif is_crash:
+            # Look for Resistance
+            for level in sr_levels['resistance']:
+                if abs(current_price - level) < threshold:
+                    sr_prob = 100
+                    reasons.append(f"At Resistance ({level:.2f})")
+                    break
+            # Also check Upper BB as dynamic resistance
+            if current_price >= upper_bb[-1]:
+                sr_prob = max(sr_prob, 80)
+                reasons.append("At Upper BB")
+                
+        # --- Final Weighted Probability ---
+        # Time: 10%, Technicals: 30%, S/R: 60%
+        final_prob = (time_prob * 0.1) + (tech_prob * 0.3) + (sr_prob * 0.6)
+        
+        if final_prob > 50:
+            reasons.append(f"Tech: {tech_prob}%")
+            
         return {
-            "probability": min(probability, 100),
+            "probability": min(final_prob, 100),
             "reasons": reasons,
-            "avg_distance": avg_distance,
-            "candles_since_last": candles_since_last
+            "candles_since_spike": candles_since_last if len(spikes_indices) > 0 else None
         }

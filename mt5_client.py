@@ -7,6 +7,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+# Missing constants in python-metatrader5
+SYMBOL_FILLING_FOK = 1
+SYMBOL_FILLING_IOC = 2
+
 class MT5Client:
     def __init__(self):
         self.authorized = False
@@ -67,6 +72,7 @@ class MT5Client:
         df['time'] = pd.to_datetime(df['time'], unit='s')
         return df
 
+
     def place_order(self, symbol: str, order_type, volume: float, sl: float = 0.0, tp: float = 0.0, comment: str = "") -> dict:
         """
         Place a trade order.
@@ -93,15 +99,29 @@ class MT5Client:
 
         price = tick.ask if order_type == mt5.ORDER_TYPE_BUY else tick.bid
         
-        # Normalize SL/TP
+        # Normalize SL/TP and Determine Filling Mode
         symbol_info = mt5.symbol_info(symbol)
+        filling_mode = mt5.ORDER_FILLING_FOK # Default
+        
         if symbol_info:
             digits = symbol_info.digits
             if sl > 0:
                 sl = round(sl, digits)
             if tp > 0:
                 tp = round(tp, digits)
+                
+            # Check filling mode
+            if (symbol_info.filling_mode & SYMBOL_FILLING_FOK) != 0:
+                filling_mode = mt5.ORDER_FILLING_FOK
+            elif (symbol_info.filling_mode & SYMBOL_FILLING_IOC) != 0:
+                filling_mode = mt5.ORDER_FILLING_IOC
         
+        # Ensure types are standard Python floats (not numpy types)
+        volume = float(volume)
+        sl = float(sl)
+        tp = float(tp)
+        price = float(price)
+
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
             "symbol": symbol,
@@ -114,11 +134,24 @@ class MT5Client:
             "magic": 234000,
             "comment": comment,
             "type_time": mt5.ORDER_TIME_GTC,
-            "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_FOK,
+            "type_filling": filling_mode,
         }
 
         result = mt5.order_send(request)
+        if result is None:
+            print("Order send failed: result is None")
+            print(f"Request: {request}")
+            print(f"Last Error: {mt5.last_error()}")
+            return None
+            
+        # Handle if result is a dict (unexpected but possible)
+        if isinstance(result, dict):
+            if result.get('retcode') != mt5.TRADE_RETCODE_DONE:
+                print(f"Order failed: {result.get('comment')}")
+                return None
+            return result
+
+        # Standard object return
         if result.retcode != mt5.TRADE_RETCODE_DONE:
             print(f"Order failed: {result.comment}")
             return None
@@ -182,6 +215,17 @@ class MT5Client:
         tick = mt5.symbol_info_tick(symbol)
         price = tick.bid if order_type == mt5.ORDER_TYPE_SELL else tick.ask
         
+        # Determine Filling Mode
+        symbol_info = mt5.symbol_info(symbol)
+        filling_mode = mt5.ORDER_FILLING_FOK # Default
+        
+        if symbol_info:
+            # Check filling mode
+            if (symbol_info.filling_mode & SYMBOL_FILLING_FOK) != 0:
+                filling_mode = mt5.ORDER_FILLING_FOK
+            elif (symbol_info.filling_mode & SYMBOL_FILLING_IOC) != 0:
+                filling_mode = mt5.ORDER_FILLING_IOC
+        
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
             "symbol": symbol,
@@ -193,10 +237,21 @@ class MT5Client:
             "magic": 234000,
             "comment": "Close position",
             "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_IOC,
+            "type_filling": filling_mode,
         }
         
         result = mt5.order_send(request)
+        if result is None:
+            print("Close failed: result is None")
+            return False
+            
+        # Handle if result is a dict
+        if isinstance(result, dict):
+            if result.get('retcode') != mt5.TRADE_RETCODE_DONE:
+                print(f"Close failed: {result.get('comment')}")
+                return False
+            return True
+
         if result.retcode != mt5.TRADE_RETCODE_DONE:
             print(f"Close failed: {result.comment}")
             return False

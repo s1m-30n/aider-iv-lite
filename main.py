@@ -17,7 +17,7 @@ TIMEFRAMES = {
     'M15': mt5.TIMEFRAME_M15,
     'M5': mt5.TIMEFRAME_M5
 }
-VOLUME = 0.2 # Minimum lot size, adjust as needed
+VOLUME = 2 # Minimum lot size, adjust as needed
 
 from ui import BotUI
 
@@ -65,6 +65,17 @@ def main():
                 market_status[symbol]['signal'] = signal['signal'] if signal else 'None'
                 
                 if signal:
+                    # Spike Wait Logic
+                    # If Spike Risk >= 15%, wait for spike to occur (must be recent, e.g., < 3 candles ago)
+                    spike_prob = details.get('spike_prob', 0.0)
+                    candles_since_spike = details.get('candles_since_spike')
+                    
+                    if spike_prob >= 15:
+                        # If no spike recorded OR last spike was too long ago (> 3 candles / 15 mins)
+                        if candles_since_spike is None or candles_since_spike > 3:
+                            ui.log(f"⚠️ High Spike Risk ({spike_prob}%) and no recent spike. Waiting...", "warning")
+                            continue
+
                     ui.log(f"Signal found for {symbol}: {signal['signal']} ({signal['type']})", "success")
                     
                     # Check if we already have a position for this symbol
@@ -96,8 +107,8 @@ def main():
             # Manage active trades (Smart Exit)
             manage_active_trades(client, strategy, ui)
             
-            # Sleep for a bit (e.g., 1 minute)
-            time.sleep(60)
+            # Sleep for a bit (e.g., 30 seconds)
+            time.sleep(30)
             
     except KeyboardInterrupt:
         ui.log("Bot stopped by user.", "warning")
@@ -129,10 +140,28 @@ def manage_active_trades(client: MT5Client, strategy: Strategy, ui: BotUI):
         spike_prob = spike_pred['probability'] if spike_pred else 0.0
         
         # 3. Smart Exit Rule
-        # User: "profit maybe above 0.5 dollar, and possible reversal... close trade"
-        if profit > 0.5 and spike_prob > 70:
+        # Close if Spike Risk is High (>= 70%) AND the spike is against our position.
+        # Boom Spikes = UP (Bad for Sell)
+        # Crash Spikes = DOWN (Bad for Buy)
+        
+        is_boom = "Boom" in symbol
+        is_crash = "Crash" in symbol
+        is_buy = pos.type == mt5.ORDER_TYPE_BUY
+        is_sell = pos.type == mt5.ORDER_TYPE_SELL
+        
+        should_close = False
+        
+        if spike_prob >= 70:
+            if is_boom and is_sell:
+                should_close = True
+                reason = f"High Spike Risk ({spike_prob}%) on Boom (Sell Position)"
+            elif is_crash and is_buy:
+                should_close = True
+                reason = f"High Spike Risk ({spike_prob}%) on Crash (Buy Position)"
+                
+        if should_close:
             ui.log(f"🚨 Smart Exit Triggered for {symbol} (Ticket {ticket})", "warning")
-            ui.log(f"   Reason: Profit (${profit:.2f}) > $0.50 AND High Spike Risk ({spike_prob}%)", "warning")
+            ui.log(f"   Reason: {reason}", "warning")
             
             # Close Position
             if client.close_position(ticket):
