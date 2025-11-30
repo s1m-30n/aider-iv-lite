@@ -161,6 +161,13 @@ def manage_active_trades(client: MT5Client, strategy: Strategy, ui: BotUI):
                 should_close = True
                 reason = f"High Spike Risk ({spike_prob}%) on Crash (Buy Position)"
         
+        # A2. Profit Protection Exit
+        # If we have some profit ($0.50) and risk is moderate (>= 15%), take the money and run.
+        if not should_close and profit > 0.50 and spike_prob >= 15:
+             if (is_boom and is_sell) or (is_crash and is_buy):
+                should_close = True
+                reason = f"Profit Protection: Profit ${profit:.2f} & Spike Risk {spike_prob}%"
+        
         # B. Profit Exit Strategies (N-Candle, RSI, BB)
         # Only check if we aren't already closing for spike risk
         if not should_close:
