@@ -1,6 +1,7 @@
 import time
 import MetaTrader5 as mt5 # Needed for constants like ORDER_TYPE_BUY
 from mt5_client import MT5Client
+from client.telegram_bot import TelegramBot
 from strategy import Strategy
 
 # Constants
@@ -31,7 +32,15 @@ def main():
         ui.log("Failed to initialize MT5 Client", "error")
         return
 
+    # Initialize and start Telegram Bot
+    bot = TelegramBot()
+    bot.start()
+    ui.log("Telegram Bot started", "info")
+
     strategy = Strategy()
+    
+    last_update_time = 0
+    UPDATE_INTERVAL = 300 # 5 minutes
     
     try:
         while True:
@@ -78,6 +87,19 @@ def main():
 
                     ui.log(f"Signal found for {symbol}: {signal['signal']} ({signal['type']})", "success")
                     
+                    # Premium Signal Message
+                    sig_type = signal['signal'].upper()
+                    emoji = "🟢" if sig_type == "BUY" else "🔴"
+                    
+                    msg = f"""<b>{emoji} SIGNAL ALERT: {symbol}</b>
+Type: <b>{sig_type}</b>
+Price: <code>{signal['price']}</code>
+SL: <code>{signal['sl']}</code>
+TP: <code>{signal['tp']}</code>
+Reason: <i>{signal['type']}</i>"""
+                    
+                    bot.send_signal(msg)
+                    
                     # Check if we already have a position for this symbol
                     positions = client.get_open_positions(symbol=symbol)
                     if len(positions) == 0:
@@ -104,8 +126,16 @@ def main():
             # Print Status Table
             ui.print_status(market_status)
             
+            # Periodic Telegram Update
+            current_time = time.time()
+            if current_time - last_update_time >= UPDATE_INTERVAL:
+                status_msg = bot.format_status_message(market_status)
+                bot.send_signal(status_msg)
+                last_update_time = current_time
+                ui.log("Sent periodic market update to Telegram", "info")
+            
             # Manage active trades (Smart Exit)
-            manage_active_trades(client, strategy, ui)
+            manage_active_trades(client, strategy, ui, bot)
             
             # Sleep for a bit (e.g., 30 seconds)
             time.sleep(30)
@@ -114,8 +144,9 @@ def main():
         ui.log("Bot stopped by user.", "warning")
     finally:
         client.shutdown()
+        bot.stop()
 
-def manage_active_trades(client: MT5Client, strategy: Strategy, ui: BotUI):
+def manage_active_trades(client: MT5Client, strategy: Strategy, ui: BotUI, bot: TelegramBot):
     """
     Manage open positions:
     1. Smart Exit: Close if Profit > $0.50 AND Spike Risk is High (>70%).
@@ -179,6 +210,7 @@ def manage_active_trades(client: MT5Client, strategy: Strategy, ui: BotUI):
         if should_close:
             ui.log(f"🚨 Smart Exit Triggered for {symbol} (Ticket {ticket})", "warning")
             ui.log(f"   Reason: {reason}", "warning")
+            bot.send_signal(f"🚨 <b>Smart Exit Triggered: {symbol}</b>\nReason: <i>{reason}</i>")
             
             # Close Position
             if client.close_position(ticket):
