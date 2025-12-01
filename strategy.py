@@ -393,17 +393,17 @@ class Strategy:
                 return True, f"RSI Overbought ({current_rsi:.1f}) - Reversal Risk"
                 
         # --- 3. BB Mean Reversion ---
-        upper, middle, lower = calculate_bollinger_bands(closes)
-        if len(middle) > 0:
-            current_middle = middle[-1]
+        # upper, middle, lower = calculate_bollinger_bands(closes)
+        # if len(middle) > 0:
+        #     current_middle = middle[-1]
             
-            # Check for touch/cross of middle band
-            # For Sell (Boom): Price drops to Middle Band (Price <= Middle)
-            # For Buy (Crash): Price rises to Middle Band (Price >= Middle)
+        #     # Check for touch/cross of middle band
+        #     # For Sell (Boom): Price drops to Middle Band (Price <= Middle)
+        #     # For Buy (Crash): Price rises to Middle Band (Price >= Middle)
             
-            if is_boom and is_sell and current_price <= current_middle:
-                return True, "Price touched Middle Bollinger Band"
-            elif is_crash and is_buy and current_price >= current_middle:
-                return True, "Price touched Middle Bollinger Band"
+        #     if is_boom and is_sell and current_price <= current_middle:
+        #         return True, "Price touched Middle Bollinger Band"
+        #     elif is_crash and is_buy and current_price >= current_middle:
+        #         return True, "Price touched Middle Bollinger Band"
                 
         return False, ""
