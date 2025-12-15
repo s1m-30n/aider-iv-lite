@@ -1,11 +1,11 @@
-# 🚀 Aider Lite: The Boom & Crash Hunter
+# 🚀 Aider(IV) Lite: The Boom & Crash Hunter
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python)
 ![MetaTrader 5](https://img.shields.io/badge/MetaTrader_5-Integration-green?style=for-the-badge&logo=windows)
 ![Status](https://img.shields.io/badge/Status-Active-success?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)
 
-**Aider Lite** is your intelligent companion for dominating the Deriv **Boom** and **Crash** markets. It doesn't just guess; it analyzes, strategizes, and strikes with precision! 🎯
+**Aider(IV) Lite** is your intelligent companion for dominating the Deriv **Boom** and **Crash** markets. It doesn't just guess; it analyzes, strategizes, and strikes with precision! 🎯
 
 Whether you're looking for quick **Scalps**, juicy **Swings**, or riding the massive **Trends**, Aider Lite has got your back.
 
@@ -22,7 +22,7 @@ Whether you're looking for quick **Scalps**, juicy **Swings**, or riding the mas
   - **Trend Mode**: Follows the big money.
   - **Swing Mode**: Catches the pullbacks.
   - **Scalp Mode**: Snipes the quick profits.
-- **🔮 Spike Predictor** _(Coming Soon)_: Uses statistical and technical magic to warn you before a spike hits!
+- **🔮 Spike Predictor** : Uses statistical and technical magic to warn you before a spike hits!
 - **🤖 Fully Automated**: Connects directly to your MT5 terminal to place orders, set SL/TP, and manage trades.
 
 ## 🛠️ Tech Stack
