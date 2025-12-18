@@ -29,7 +29,7 @@ Whether you're looking for quick **Scalps**, juicy **Swings**, or riding the mas
 
 - **Python**: The brain.
 - **MetaTrader 5 (MT5)**: The execution arm.
-- **TA-Lib**: The technical wizardry.
+- **TA-Lib**: The technical wizardry. (Click to see the [installation guide](https://blog.quantinsti.com/install-ta-lib-python/))
 - **Pandas**: The data cruncher.
 
 ## 🚀 Getting Started
