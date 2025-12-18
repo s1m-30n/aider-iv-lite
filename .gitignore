@@ -1,2 +1,4 @@
 .env
 __pycache__
+subscribers.json
+test_telegram_bot.py

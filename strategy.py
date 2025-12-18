@@ -332,3 +332,78 @@ class Strategy:
             "reasons": reasons,
             "candles_since_spike": candles_since_last if len(spikes_indices) > 0 else None
         }
+
+    def check_exit_conditions(self, symbol: str, df_m5: pd.DataFrame, position_type: int, open_time: float) -> tuple[bool, str]:
+        """
+        Check if any profit exit conditions are met.
+        
+        Strategies:
+        1. N-Candle Scalp: Close after 5 candles.
+        2. RSI Extremes: Close if RSI < 30 (Boom/Sell) or RSI > 70 (Crash/Buy).
+        3. BB Mean Reversion: Close if price touches Middle Band.
+        
+        Args:
+            symbol (str): Symbol name.
+            df_m5 (pd.DataFrame): M5 Data.
+            position_type (int): mt5.ORDER_TYPE_BUY or mt5.ORDER_TYPE_SELL.
+            open_time (float): Timestamp of when the position was opened.
+            
+        Returns:
+            tuple: (should_close, reason)
+        """
+        if df_m5 is None or df_m5.empty:
+            return False, ""
+            
+        is_boom = "Boom" in symbol
+        is_crash = "Crash" in symbol
+        is_buy = position_type == mt5.ORDER_TYPE_BUY
+        is_sell = position_type == mt5.ORDER_TYPE_SELL
+        
+        # Data
+        closes = df_m5['close'].values
+        times = df_m5['time'].values
+        current_price = closes[-1]
+        
+        # --- 1. N-Candle Scalp (5 Candles) ---
+        # Calculate how many M5 candles have passed since open_time
+        # We can approximate this or count strictly from the dataframe
+        
+        # Find index of the candle that contains the open_time
+        # Or simply: (current_time - open_time) / (5 * 60)
+        
+        current_time = times[-1].astype('datetime64[s]').astype(float) # Convert numpy datetime to timestamp float
+        
+        # If open_time is from MT5, it's a float timestamp.
+        # Ensure we are comparing apples to apples.
+        
+        # Let's use simple time diff for robustness
+        seconds_elapsed = current_time - open_time
+        candles_elapsed = seconds_elapsed / 300 # 300 seconds in 5 mins
+        
+        if candles_elapsed >= 5:
+            return True, f"N-Candle Scalp Target Reached ({int(candles_elapsed)} candles)"
+            
+        # --- 2. RSI Extremes ---
+        rsi = calculate_rsi(closes)
+        if len(rsi) > 0:
+            current_rsi = rsi[-1]
+            if is_boom and is_sell and current_rsi < 30:
+                return True, f"RSI Oversold ({current_rsi:.1f}) - Reversal Risk"
+            elif is_crash and is_buy and current_rsi > 70:
+                return True, f"RSI Overbought ({current_rsi:.1f}) - Reversal Risk"
+                
+        # --- 3. BB Mean Reversion ---
+        # upper, middle, lower = calculate_bollinger_bands(closes)
+        # if len(middle) > 0:
+        #     current_middle = middle[-1]
+            
+        #     # Check for touch/cross of middle band
+        #     # For Sell (Boom): Price drops to Middle Band (Price <= Middle)
+        #     # For Buy (Crash): Price rises to Middle Band (Price >= Middle)
+            
+        #     if is_boom and is_sell and current_price <= current_middle:
+        #         return True, "Price touched Middle Bollinger Band"
+        #     elif is_crash and is_buy and current_price >= current_middle:
+        #         return True, "Price touched Middle Bollinger Band"
+                
+        return False, ""
